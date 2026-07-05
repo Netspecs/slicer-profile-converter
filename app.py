@@ -103,15 +103,24 @@ class ConverterApp:
                  fg=FG, font=("Segoe UI", 20, "bold")).pack(anchor="w")
         tk.Label(header,
                  text="Move filament, printer & process profiles between "
-                      "Bambu Studio, OrcaSlicer and Snapmaker Orca \u2014 "
+                      "Bambu Studio, OrcaSlicer, Snapmaker Orca, Creality Print, "
+                      "Anycubic Slicer, Ultimaker Cura, PrusaSlicer and SuperSlicer \u2014 "
                       "read straight from disk, no export button needed.",
                  bg=BG, fg=FG_MUTED, font=("Segoe UI", 10),
                  wraplength=920, justify="left").pack(anchor="w", pady=(2, 0))
 
     # ----- controls --------------------------------------------------------
     # Display names for slicer keys.
-    _SLICER_DISPLAY = {"bambu": "Bambu Studio", "orca": "OrcaSlicer",
-                       "snapmaker": "Snapmaker Orca"}
+    _SLICER_DISPLAY = {
+        "bambu": "Bambu Studio",
+        "orca": "OrcaSlicer",
+        "snapmaker": "Snapmaker Orca",
+        "creality": "Creality Print",
+        "anycubic": "Anycubic Slicer",
+        "cura": "Ultimaker Cura",
+        "prusa": "PrusaSlicer",
+        "super": "SuperSlicer",
+    }
 
     def _build_controls(self):
         wrap = tk.Frame(self.root, bg=BG_CARD)
@@ -119,7 +128,7 @@ class ConverterApp:
         inner = tk.Frame(wrap, bg=BG_CARD)
         inner.pack(fill="x", padx=14, pady=12)
 
-        real_keys = ["bambu", "orca", "snapmaker"]
+        real_keys = ["bambu", "orca", "snapmaker", "creality", "anycubic", "cura", "prusa", "super"]
         # "all" is a virtual key that aggregates every detected slicer.
         self._src_keys = ["all"] + real_keys
         self._dst_keys = real_keys
@@ -206,10 +215,17 @@ class ConverterApp:
         low = path.lower()
         ptype = PROFILE_TYPES[0]
         parts = os.path.normpath(path).lower().split(os.sep)
+        
+        # Infer profile type from folder name
         for t in PROFILE_TYPES:
             if t in parts:
                 ptype = t
                 break
+        # PrusaSlicer uses "print" instead of "process"
+        if "print" in parts and ptype == PROFILE_TYPES[0]:
+            ptype = "process"
+        
+        # Infer source slicer from path
         src = None
         if "snapmaker" in low:
             src = "snapmaker"
@@ -217,6 +233,17 @@ class ConverterApp:
             src = "bambu"
         elif "orcaslicer" in low:
             src = "orca"
+        elif "crealityprint" in low or "creality print" in low:
+            src = "creality"
+        elif "anycubic" in low:
+            src = "anycubic"
+        elif "cura" in low:
+            src = "cura"
+        elif "prusaslicer" in low:
+            src = "prusa"
+        elif "superslicer" in low or "super slicer" in low:
+            src = "super"
+        
         return src, ptype
 
     # ----- body: profile list + report ------------------------------------
@@ -325,7 +352,8 @@ class ConverterApp:
             for t in types:
                 for p in list_profiles(install, t):
                     try:
-                        nm = profile_name(load_json(p), os.path.basename(p))
+                        from profile_io import load_profile
+                        nm = profile_name(load_profile(p), os.path.basename(p))
                     except ProfileError:
                         nm = os.path.basename(p)
                     entry = {"path": p, "src_key": sk, "ptype": t,
@@ -357,8 +385,14 @@ class ConverterApp:
 
     def _add_file_manual(self):
         files = filedialog.askopenfilenames(
-            title="Select profile .json file(s)",
-            filetypes=[("Profile JSON", "*.json"), ("All files", "*.*")])
+            title="Select profile file(s)",
+            filetypes=[
+                ("All profile formats", "*.json *.ini *.cfg *.inst.cfg"),
+                ("JSON profiles", "*.json"),
+                ("INI profiles", "*.ini"),
+                ("Cura profiles", "*.inst.cfg *.cfg"),
+                ("All files", "*.*")
+            ])
         existing = {e["path"] for e in self.profile_entries}
         # If a specific source slicer is chosen, prefer it; otherwise infer.
         chosen_src = self._selected_src_key()
@@ -367,7 +401,8 @@ class ConverterApp:
             if f in existing:
                 continue
             try:
-                nm = profile_name(load_json(f), os.path.basename(f))
+                from profile_io import load_profile
+                nm = profile_name(load_profile(f), os.path.basename(f))
             except ProfileError:
                 nm = os.path.basename(f)
             inf_src, inf_type = self._infer_from_path(f)
@@ -427,7 +462,8 @@ class ConverterApp:
             src_name = install.name if install else \
                 self._SLICER_DISPLAY.get(src_key, src_key)
             try:
-                data = load_json(path)
+                from profile_io import load_profile, save_profile
+                data = load_profile(path)
                 # include the profile's own folder for parent lookups
                 dirs = [os.path.dirname(path)] + \
                     self._search_dirs_for(src_key, ptype)
@@ -437,8 +473,8 @@ class ConverterApp:
                     search_dirs=dirs,
                     name_suffix=f" (from {src_name})",
                 )
-                out_name = suggested_filename(converted, ptype)
-                save_json(converted, os.path.join(out_dir, out_name))
+                out_name = suggested_filename(converted, ptype, dst_key)
+                save_profile(converted, os.path.join(out_dir, out_name))
                 reports.append(report)
             except Exception as exc:  # noqa: BLE001 - surface any failure
                 errors.append(f"{os.path.basename(path)}: {exc}")

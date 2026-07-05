@@ -78,6 +78,12 @@ _SLICER_DIRNAMES = {
                   "Snapmaker Orca"),
     # Cura uses version-specific folders (e.g., cura/5.9)
     "cura": (["cura"], "Ultimaker Cura"),
+    # PrusaSlicer and SuperSlicer use .ini profiles
+    "prusa": (["PrusaSlicer"], "PrusaSlicer"),
+    "super": (["SuperSlicer"], "SuperSlicer"),
+    # OrcaSlicer forks from other manufacturers
+    "creality": (["CrealityPrint"], "Creality Print"),
+    "anycubic": (["AnycubicSlicer", "Anycubic Slicer"], "Anycubic Slicer"),
 }
 
 
@@ -123,7 +129,8 @@ def _find_cura_version_dir(cura_root: str) -> Optional[str]:
 def detect_slicers() -> Dict[str, SlicerInstall]:
     """Detect all supported slicers installed for the current user.
 
-    Returns a dict keyed by slicer key (``bambu``, ``orca``, ``snapmaker``, ``cura``).
+    Returns a dict keyed by slicer key (``bambu``, ``orca``, ``snapmaker``, ``cura``, 
+    ``prusa``, ``super``, ``creality``, ``anycubic``).
     Only slicers whose config root exists on disk are included.
     """
     found: Dict[str, SlicerInstall] = {}
@@ -141,6 +148,12 @@ def detect_slicers() -> Dict[str, SlicerInstall]:
             # Cura doesn't use a "user" subfolder - profiles are directly in version dir
             user_root = root
             user_ids = [""]  # Empty string = no user_id subfolder
+        # PrusaSlicer/SuperSlicer use .ini profiles directly in type folders
+        elif key in ("prusa", "super"):
+            # PrusaSlicer has filament/, print/, printer/ directly under config root
+            user_root = root
+            user_ids = [""]  # Empty string = no user_id subfolder
+        # OrcaSlicer family (bambu, orca, snapmaker, creality, anycubic) use user/<id>/ structure
         else:
             user_root = os.path.join(root, "user")
             user_ids = _list_user_ids(user_root)
@@ -161,6 +174,7 @@ def list_profiles(install: SlicerInstall, profile_type: str,
 
     For OrcaSlicer family: looks for .json files
     For Cura: looks for .inst.cfg files in appropriate subdirectories
+    For PrusaSlicer/SuperSlicer: looks for .ini files
 
     If ``user_id`` is given, only that user folder is scanned; otherwise all
     user folders are scanned. Files whose names start with '.' are skipped.
@@ -189,8 +203,23 @@ def list_profiles(install: SlicerInstall, profile_type: str,
             for fn in sorted(os.listdir(folder)):
                 if not fn.startswith(".") and any(fn.endswith(ext) for ext in extensions):
                     results.append(os.path.join(folder, fn))
+    # PrusaSlicer/SuperSlicer use .ini files in type-specific folders
+    elif install.key in ("prusa", "super"):
+        # Map our generic types to PrusaSlicer folder names
+        prusa_folders = {
+            "filament": "filament",
+            "process": "print",      # PrusaSlicer calls it "print" not "process"
+            "machine": "printer",
+        }
+        folder_name = prusa_folders.get(profile_type, profile_type)
+        folder = os.path.join(install.user_root, folder_name)
+        
+        if os.path.isdir(folder):
+            for fn in sorted(os.listdir(folder)):
+                if fn.lower().endswith(".ini") and not fn.startswith("."):
+                    results.append(os.path.join(folder, fn))
     else:
-        # OrcaSlicer family: user/<user_id>/<type>/*.json
+        # OrcaSlicer family (bambu, orca, snapmaker, creality, anycubic): user/<user_id>/<type>/*.json
         for uid in user_ids:
             folder = os.path.join(install.user_root, uid, profile_type)
             if not os.path.isdir(folder):
@@ -209,8 +238,26 @@ def system_profile_dirs(install: SlicerInstall, profile_type: str) -> List[str]:
     To flatten a profile we may need to read those bases, so we expose their
     likely locations here. Layout: ``<config-root>/system/<Vendor>/<type>/``.
     """
-    sys_root = os.path.join(install.config_root, "system")
     dirs: List[str] = []
+    
+    # PrusaSlicer/SuperSlicer have system presets in different locations
+    if install.key in ("prusa", "super"):
+        # PrusaSlicer system profiles are in the same folders as user profiles
+        # but they have different naming conventions (vendor presets vs user)
+        # The inheritance resolution in profile_io will handle both
+        prusa_folders = {
+            "filament": "filament",
+            "process": "print",
+            "machine": "printer",
+        }
+        folder_name = prusa_folders.get(profile_type, profile_type)
+        user_folder = os.path.join(install.user_root, folder_name)
+        if os.path.isdir(user_folder):
+            dirs.append(user_folder)
+        return dirs
+    
+    # OrcaSlicer family and Cura have system folders
+    sys_root = os.path.join(install.config_root, "system")
     if os.path.isdir(sys_root):
         for vendor in sorted(os.listdir(sys_root)):
             vdir = os.path.join(sys_root, vendor, profile_type)

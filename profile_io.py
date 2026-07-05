@@ -112,27 +112,111 @@ def save_cura_cfg(data: dict, path: str) -> None:
         parser.write(fh)
 
 
+def load_prusa_ini(path: str) -> dict:
+    """Load a PrusaSlicer/SuperSlicer .ini file and convert to dict.
+    
+    PrusaSlicer profiles are INI files with a simple key=value format.
+    Some keys have multiple values (arrays) stored as semicolon-separated.
+    """
+    try:
+        result = {}
+        with open(path, "r", encoding="utf-8") as fh:
+            current_section = "default"
+            for line in fh:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith("#"):
+                    continue
+                # Section headers [section_name]
+                if line.startswith("[") and line.endswith("]"):
+                    current_section = line[1:-1]
+                    continue
+                # Key-value pairs
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip()
+                    # Store with section prefix if not default
+                    if current_section != "default":
+                        key = f"{current_section}_{key}"
+                    result[key] = value
+        
+        # Add file metadata
+        result["_prusa_file"] = os.path.basename(path)
+        result["_prusa_format"] = "ini"
+        
+        return result
+    except Exception as exc:
+        raise ProfileError(f"Could not read PrusaSlicer profile {path!r}: {exc}") from exc
+
+
+def save_prusa_ini(data: dict, path: str) -> None:
+    """Write a dict to a PrusaSlicer/SuperSlicer .ini file.
+    
+    Reconstructs the INI structure from a flat dict.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    
+    # Separate keys by section
+    sections = {"default": {}}
+    
+    for key, value in data.items():
+        if key.startswith("_prusa"):
+            continue  # Skip internal metadata
+        # Check if key has section prefix
+        if "_" in key and not key.startswith("_"):
+            parts = key.split("_", 1)
+            section = parts[0]
+            actual_key = parts[1]
+            if section not in sections:
+                sections[section] = {}
+            sections[section][actual_key] = str(value)
+        else:
+            sections["default"][key] = str(value)
+    
+    with open(path, "w", encoding="utf-8") as fh:
+        # Write default section first (no header)
+        if sections["default"]:
+            for key, value in sorted(sections["default"].items()):
+                fh.write(f"{key} = {value}\n")
+        
+        # Write other sections with headers
+        for section in sorted(sections.keys()):
+            if section == "default":
+                continue
+            fh.write(f"\n[{section}]\n")
+            for key, value in sorted(sections[section].items()):
+                fh.write(f"{key} = {value}\n")
+
+
 def load_profile(path: str) -> dict:
-    """Load a profile file in any supported format (JSON or Cura .inst.cfg).
+    """Load a profile file in any supported format (JSON, Cura .inst.cfg, or PrusaSlicer .ini).
     
     Automatically detects the format based on file extension.
     """
     if path.endswith(".json"):
         return load_json(path)
+    elif path.endswith(".ini"):
+        return load_prusa_ini(path)
     elif path.endswith(".inst.cfg") or path.endswith(".cfg") or path.endswith(".fdm_material"):
         return load_cura_cfg(path)
     else:
-        # Try JSON first, fallback to Cura
+        # Try JSON first, fallback to INI, then Cura
         try:
             return load_json(path)
         except ProfileError:
-            return load_cura_cfg(path)
+            try:
+                return load_prusa_ini(path)
+            except ProfileError:
+                return load_cura_cfg(path)
 
 
 def save_profile(data: dict, path: str) -> None:
     """Save a profile file in the appropriate format based on extension."""
     if path.endswith(".json"):
         save_json(data, path)
+    elif path.endswith(".ini"):
+        save_prusa_ini(data, path)
     elif path.endswith(".inst.cfg") or path.endswith(".cfg") or path.endswith(".fdm_material"):
         save_cura_cfg(data, path)
     else:
@@ -155,10 +239,10 @@ def _index_profiles_by_name(search_dirs: List[str]) -> Dict[str, str]:
 
     Later directories do NOT override earlier ones (first match wins), so pass
     user dirs before system dirs if you prefer user copies.
-    Handles both JSON and Cura .inst.cfg files.
+    Handles JSON, PrusaSlicer .ini, and Cura .inst.cfg files.
     """
     index: Dict[str, str] = {}
-    valid_extensions = (".json", ".inst.cfg", ".cfg", ".fdm_material")
+    valid_extensions = (".json", ".ini", ".inst.cfg", ".cfg", ".fdm_material")
     
     for d in search_dirs:
         if not d or not os.path.isdir(d):

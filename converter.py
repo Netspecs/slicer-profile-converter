@@ -34,18 +34,84 @@ FAMILY = {
     "bambu": "orca",
     "orca": "orca",
     "snapmaker": "orca",
+    "creality": "orca",
+    "anycubic": "orca",
     "prusa": "prusa",
     "super": "prusa",
     "cura": "cura",
 }
 
-# Basic key mapping: Cura → OrcaSlicer/Bambu (most common settings only)
-# Full mapping would need hundreds of keys; this covers essentials for basic conversion
+# Key mappings between different slicer families
+# These cover the most common settings - full coverage would need hundreds of keys
+
+# PrusaSlicer ↔ OrcaSlicer/Bambu mappings
+PRUSA_TO_ORCA_MAP = {
+    # Layer & Perimeters
+    "layer_height": "layer_height",
+    "first_layer_height": "first_layer_height",
+    "perimeters": "wall_loops",
+    "top_solid_layers": "top_shell_layers",
+    "bottom_solid_layers": "bottom_shell_layers",
+    "extra_perimeters": "extra_perimeters",
+    
+    # Infill
+    "fill_density": "sparse_infill_density",
+    "fill_pattern": "sparse_infill_pattern",
+    "top_fill_pattern": "top_surface_pattern",
+    "bottom_fill_pattern": "bottom_surface_pattern",
+    
+    # Speed
+    "perimeter_speed": "outer_wall_speed",
+    "external_perimeter_speed": "outer_wall_speed",
+    "infill_speed": "sparse_infill_speed",
+    "solid_infill_speed": "internal_solid_infill_speed",
+    "top_solid_infill_speed": "top_surface_speed",
+    "travel_speed": "travel_speed",
+    "first_layer_speed": "initial_layer_speed",
+    "bridge_speed": "bridge_speed",
+    
+    # Temperature
+    "temperature": "nozzle_temperature",
+    "first_layer_temperature": "nozzle_temperature_initial_layer",
+    "bed_temperature": "bed_temperature",
+    "first_layer_bed_temperature": "bed_temperature_initial_layer_single",
+    
+    # Support
+    "support_material": "enable_support",
+    "support_material_pattern": "support_base_pattern",
+    "support_material_spacing": "support_base_pattern_spacing",
+    "support_material_threshold": "support_threshold_angle",
+    
+    # Retraction
+    "retract_length": "retraction_length",
+    "retract_speed": "retraction_speed",
+    "retract_before_travel": "retract_before_wipe",
+    
+    # Cooling
+    "fan_always_on": "fan_cooling_layer_time",
+    "min_fan_speed": "slow_down_min_speed",
+    "max_fan_speed": "fan_max_speed",
+    "bridge_fan_speed": "overhang_fan_speed",
+    
+    # Extrusion
+    "extrusion_width": "line_width",
+    "extrusion_multiplier": "filament_flow_ratio",
+    "nozzle_diameter": "nozzle_diameter",
+    
+    # Skirt/Brim
+    "skirts": "skirt_loops",
+    "skirt_distance": "skirt_distance",
+    "brim_width": "brim_width",
+}
+
+ORCA_TO_PRUSA_MAP = {v: k for k, v in PRUSA_TO_ORCA_MAP.items() if v != k}
+
+# Cura → OrcaSlicer/Bambu mappings (most common settings)
 CURA_TO_ORCA_MAP = {
     # Layer & Shell
     "layer_height": "layer_height",
     "initial_layer_height": "first_layer_height",
-    "wall_thickness": "wall_loops",  # Needs division by nozzle diameter
+    "wall_thickness": "wall_loops",
     "wall_line_count": "wall_loops",
     "top_layers": "top_shell_layers",
     "bottom_layers": "bottom_shell_layers",
@@ -61,7 +127,7 @@ CURA_TO_ORCA_MAP = {
     "material_bed_temperature_layer_0": "bed_temperature_initial_layer_single",
     
     # Speed
-    "speed_print": "outer_wall_speed",  # Approximate
+    "speed_print": "outer_wall_speed",
     "speed_infill": "sparse_infill_speed",
     "speed_wall": "outer_wall_speed",
     "speed_wall_0": "outer_wall_speed",
@@ -71,24 +137,23 @@ CURA_TO_ORCA_MAP = {
     
     # Support
     "support_enable": "enable_support",
-    "support_type": "support_type",  # Values differ
+    "support_type": "support_type",
     "support_infill_rate": "support_base_pattern_spacing",
     
     # Retraction
-    "retraction_enable": "enable_retraction",  # Different format
+    "retraction_enable": "enable_retraction",
     "retraction_amount": "retraction_length",
     "retraction_speed": "retraction_speed",
     
     # Cooling
-    "cool_fan_enabled": "cooling_fan_enable",  # Different format
-    "cool_fan_speed": "fan_cooling_layer_time",  # Complex mapping
+    "cool_fan_enabled": "cooling_fan_enable",
+    "cool_fan_speed": "fan_cooling_layer_time",
     
     # Adhesion
-    "adhesion_type": "brim_type",  # Values completely different
+    "adhesion_type": "brim_type",
 }
 
-# Reverse mapping for Orca → Cura
-ORCA_TO_CURA_MAP = {v: k for k, v in CURA_TO_ORCA_MAP.items()}
+ORCA_TO_CURA_MAP = {v: k for k, v in CURA_TO_ORCA_MAP.items() if v != k}
 
 # Keys that carry custom start/end G-code (translated when crossing dialects).
 GCODE_KEYS = (
@@ -262,57 +327,100 @@ def convert_profile(
         report.changes.append(
             f"Removed source-only id field(s): {', '.join(dropped)}.")
 
-    # 4) Map Cura ↔ OrcaSlicer/Bambu keys if converting to/from Cura.
+    # 4) Map keys if converting between different slicer families
     src_fam = FAMILY.get(src_slicer, "orca")
     dst_fam = FAMILY.get(dst_slicer, "orca")
     
-    if src_fam == "cura" and dst_fam == "orca":
-        # Cura → Orca/Bambu: map keys
-        mapped = {}
-        unmapped = []
-        for key, value in out.items():
-            if key in CURA_TO_ORCA_MAP:
-                new_key = CURA_TO_ORCA_MAP[key]
-                mapped[new_key] = value
-            elif key.startswith("_cura") or key.startswith("general_") or key.startswith("metadata_"):
-                continue  # Skip Cura metadata
-            else:
-                mapped[key] = value
-                if not key.startswith("_"):
-                    unmapped.append(key)
+    if src_fam != dst_fam:
+        # PrusaSlicer → Orca/Bambu
+        if src_fam == "prusa" and dst_fam == "orca":
+            mapped = {}
+            unmapped = []
+            for key, value in out.items():
+                if key in PRUSA_TO_ORCA_MAP:
+                    new_key = PRUSA_TO_ORCA_MAP[key]
+                    mapped[new_key] = value
+                elif key.startswith("_prusa"):
+                    continue  # Skip metadata
+                else:
+                    mapped[key] = value
+                    if not key.startswith("_"):
+                        unmapped.append(key)
+            
+            out = mapped
+            report.changes.append(
+                f"Mapped {len(PRUSA_TO_ORCA_MAP)} PrusaSlicer settings to OrcaSlicer/Bambu format.")
+            if unmapped:
+                report.warnings.append(
+                    f"Some PrusaSlicer settings had no mapping: {', '.join(unmapped[:5])}{'...' if len(unmapped) > 5 else ''}")
         
-        out = mapped
-        report.changes.append(
-            f"Mapped {len(CURA_TO_ORCA_MAP)} Cura settings to OrcaSlicer/Bambu format.")
-        if unmapped:
-            report.warnings.append(
-                f"Some Cura settings had no mapping and were kept as-is: {', '.join(unmapped[:5])}{'...' if len(unmapped) > 5 else ''}")
-    
-    elif src_fam == "orca" and dst_fam == "cura":
-        # Orca/Bambu → Cura: map keys
-        mapped = {}
-        unmapped = []
-        for key, value in out.items():
-            if key in ORCA_TO_CURA_MAP:
-                new_key = ORCA_TO_CURA_MAP[key]
-                mapped[new_key] = value
-            else:
-                mapped[key] = value
-                if not key.startswith("_") and key not in ("name", "type", "from", "is_custom_defined"):
-                    unmapped.append(key)
+        # Orca/Bambu → PrusaSlicer
+        elif src_fam == "orca" and dst_fam == "prusa":
+            mapped = {}
+            unmapped = []
+            for key, value in out.items():
+                if key in ORCA_TO_PRUSA_MAP:
+                    new_key = ORCA_TO_PRUSA_MAP[key]
+                    mapped[new_key] = value
+                else:
+                    mapped[key] = value
+                    if not key.startswith("_") and key not in ("name", "type", "from", "is_custom_defined"):
+                        unmapped.append(key)
+            
+            out = mapped
+            report.changes.append(
+                f"Mapped {len(ORCA_TO_PRUSA_MAP)} OrcaSlicer/Bambu settings to PrusaSlicer format.")
+            if unmapped:
+                report.warnings.append(
+                    f"Some OrcaSlicer settings had no PrusaSlicer mapping: {', '.join(unmapped[:5])}{'...' if len(unmapped) > 5 else ''}")
         
-        # Add Cura metadata section
-        mapped["general_version"] = "4"
-        mapped["general_definition"] = "fdmprinter"
-        mapped["metadata_type"] = "quality_changes" if profile_type == "process" else "material"
-        mapped["metadata_setting_version"] = "22"
+        # Cura → Orca/Bambu
+        elif src_fam == "cura" and dst_fam == "orca":
+            mapped = {}
+            unmapped = []
+            for key, value in out.items():
+                if key in CURA_TO_ORCA_MAP:
+                    new_key = CURA_TO_ORCA_MAP[key]
+                    mapped[new_key] = value
+                elif key.startswith("_cura") or key.startswith("general_") or key.startswith("metadata_"):
+                    continue  # Skip Cura metadata
+                else:
+                    mapped[key] = value
+                    if not key.startswith("_"):
+                        unmapped.append(key)
+            
+            out = mapped
+            report.changes.append(
+                f"Mapped {len(CURA_TO_ORCA_MAP)} Cura settings to OrcaSlicer/Bambu format.")
+            if unmapped:
+                report.warnings.append(
+                    f"Some Cura settings had no mapping: {', '.join(unmapped[:5])}{'...' if len(unmapped) > 5 else ''}")
         
-        out = mapped
-        report.changes.append(
-            f"Mapped {len(ORCA_TO_CURA_MAP)} OrcaSlicer/Bambu settings to Cura format.")
-        if unmapped:
-            report.warnings.append(
-                f"Some OrcaSlicer settings had no Cura mapping: {', '.join(unmapped[:5])}{'...' if len(unmapped) > 5 else ''}")
+        # Orca/Bambu → Cura
+        elif src_fam == "orca" and dst_fam == "cura":
+            mapped = {}
+            unmapped = []
+            for key, value in out.items():
+                if key in ORCA_TO_CURA_MAP:
+                    new_key = ORCA_TO_CURA_MAP[key]
+                    mapped[new_key] = value
+                else:
+                    mapped[key] = value
+                    if not key.startswith("_") and key not in ("name", "type", "from", "is_custom_defined"):
+                        unmapped.append(key)
+            
+            # Add Cura metadata section
+            mapped["general_version"] = "4"
+            mapped["general_definition"] = "fdmprinter"
+            mapped["metadata_type"] = "quality_changes" if profile_type == "process" else "material"
+            mapped["metadata_setting_version"] = "22"
+            
+            out = mapped
+            report.changes.append(
+                f"Mapped {len(ORCA_TO_CURA_MAP)} OrcaSlicer/Bambu settings to Cura format.")
+            if unmapped:
+                report.warnings.append(
+                    f"Some OrcaSlicer settings had no Cura mapping: {', '.join(unmapped[:5])}{'...' if len(unmapped) > 5 else ''}")
 
     # 5) Translate G-code if the dialect differs.
     if src_fam != dst_fam and src_fam != "cura" and dst_fam != "cura":
@@ -335,7 +443,11 @@ def suggested_filename(converted: dict, profile_type: str, dst_slicer: str = "or
     name = profile_name(converted, f"converted_{profile_type}")
     safe = "".join(c if c.isalnum() or c in " -_@." else "_" for c in name).strip()
     
-    # Cura uses .inst.cfg, others use .json
-    if FAMILY.get(dst_slicer, "orca") == "cura":
+    # Different file extensions for different slicer families
+    family = FAMILY.get(dst_slicer, "orca")
+    if family == "cura":
         return f"{safe}.inst.cfg"
-    return f"{safe}.json"
+    elif family == "prusa":
+        return f"{safe}.ini"
+    else:
+        return f"{safe}.json"
