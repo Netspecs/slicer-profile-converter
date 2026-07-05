@@ -60,7 +60,8 @@ class ConverterApp:
         self.root.configure(bg=BG)
 
         self.installs = detect_slicers()
-        self.profile_paths: list[str] = []  # currently listed profiles
+        # Each entry: {path, src_key, ptype, name, manual}
+        self.profile_entries: list[dict] = []
 
         self._set_window_icon()
         self._build_style()
@@ -108,21 +109,36 @@ class ConverterApp:
                  wraplength=920, justify="left").pack(anchor="w", pady=(2, 0))
 
     # ----- controls --------------------------------------------------------
+    # Display names for slicer keys.
+    _SLICER_DISPLAY = {"bambu": "Bambu Studio", "orca": "OrcaSlicer",
+                       "snapmaker": "Snapmaker Orca"}
+
     def _build_controls(self):
         wrap = tk.Frame(self.root, bg=BG_CARD)
         wrap.pack(fill="x", padx=20, pady=8)
         inner = tk.Frame(wrap, bg=BG_CARD)
         inner.pack(fill="x", padx=14, pady=12)
 
-        slicer_names = {k: v.name for k, v in self.installs.items()}
-        # Fallback list so the UI is usable even if nothing is auto-detected.
-        all_keys = ["bambu", "orca", "snapmaker"]
-        display = {"bambu": "Bambu Studio", "orca": "OrcaSlicer",
-                   "snapmaker": "Snapmaker Orca"}
+        real_keys = ["bambu", "orca", "snapmaker"]
+        # "all" is a virtual key that aggregates every detected slicer.
+        self._src_keys = ["all"] + real_keys
+        self._dst_keys = real_keys
+        # "all" type shows filament + printer + process together.
+        self._type_keys = ["all"] + list(PROFILE_TYPES)
 
-        def label_for(k):
-            base = display[k]
+        def src_label(k):
+            if k == "all":
+                n = len(self.installs)
+                return f"All detected slicers ({n})" if n else "All slicers"
+            base = self._SLICER_DISPLAY[k]
             return base + ("" if k in self.installs else "  (not detected)")
+
+        def dst_label(k):
+            base = self._SLICER_DISPLAY[k]
+            return base + ("" if k in self.installs else "  (not detected)")
+
+        def type_label(t):
+            return "All types" if t == "all" else TYPE_LABELS[t]
 
         # Row 1: source slicer + profile type
         row1 = tk.Frame(inner, bg=BG_CARD)
@@ -133,19 +149,19 @@ class ConverterApp:
         self.src_var = tk.StringVar()
         self.src_menu = ttk.Combobox(
             row1, textvariable=self.src_var, state="readonly", width=26,
-            values=[label_for(k) for k in all_keys])
-        self.src_menu.current(0)
+            values=[src_label(k) for k in self._src_keys])
+        self.src_menu.current(0)  # default: show everything
         self.src_menu.pack(side="left", padx=(6, 18))
         self.src_menu.bind("<<ComboboxSelected>>",
-                           lambda e: self._on_src_change(all_keys))
+                           lambda e: self._refresh_profile_list())
 
         tk.Label(row1, text="Profile type:", bg=BG_CARD, fg=FG,
                  font=("Segoe UI", 10, "bold")).pack(side="left")
-        self.type_var = tk.StringVar(value=PROFILE_TYPES[0])
+        self.type_var = tk.StringVar()
         self.type_menu = ttk.Combobox(
             row1, textvariable=self.type_var, state="readonly", width=18,
-            values=[TYPE_LABELS[t] for t in PROFILE_TYPES])
-        self.type_menu.current(0)
+            values=[type_label(t) for t in self._type_keys])
+        self.type_menu.current(0)  # default: all types
         self.type_menu.pack(side="left", padx=(6, 0))
         self.type_menu.bind("<<ComboboxSelected>>",
                             lambda e: self._refresh_profile_list())
@@ -159,7 +175,7 @@ class ConverterApp:
         self.dst_var = tk.StringVar()
         self.dst_menu = ttk.Combobox(
             row2, textvariable=self.dst_var, state="readonly", width=26,
-            values=[label_for(k) for k in all_keys])
+            values=[dst_label(k) for k in self._dst_keys])
         self.dst_menu.current(1)
         self.dst_menu.pack(side="left", padx=(6, 18))
 
@@ -172,26 +188,36 @@ class ConverterApp:
         self.printer_entry.pack(side="left", padx=(6, 0), ipady=3)
         self.printer_var.set("Snapmaker Artisan 0.4 nozzle")
 
-        self._all_keys = all_keys
+    def _selected_src_key(self) -> str:
+        """Return the selected source key ('all' or a specific slicer)."""
+        idx = self.src_menu.current()
+        if idx < 0 or idx >= len(self._src_keys):
+            return "all"
+        return self._src_keys[idx]
 
-    def _on_src_change(self, all_keys):
-        self._refresh_profile_list()
+    def _selected_dst_key(self) -> str:
+        idx = self.dst_menu.current()
+        if idx < 0 or idx >= len(self._dst_keys):
+            return self._dst_keys[0]
+        return self._dst_keys[idx]
 
-    def _selected_key(self, var, all_keys):
-        # Combobox shows label text; map index back to key.
-        try:
-            idx = [self._label_index(var.get())][0]
-        except Exception:
-            idx = 0
-        return all_keys[idx]
-
-    def _label_index(self, text):
-        for i, k in enumerate(self._all_keys):
-            disp = {"bambu": "Bambu Studio", "orca": "OrcaSlicer",
-                    "snapmaker": "Snapmaker Orca"}[k]
-            if text.startswith(disp):
-                return i
-        return 0
+    def _infer_from_path(self, path):
+        """Best-effort (src_key, profile_type) inference from a file path."""
+        low = path.lower()
+        ptype = PROFILE_TYPES[0]
+        parts = os.path.normpath(path).lower().split(os.sep)
+        for t in PROFILE_TYPES:
+            if t in parts:
+                ptype = t
+                break
+        src = None
+        if "snapmaker" in low:
+            src = "snapmaker"
+        elif "bambustudio" in low or "bambu studio" in low:
+            src = "bambu"
+        elif "orcaslicer" in low:
+            src = "orca"
+        return src, ptype
 
     # ----- body: profile list + report ------------------------------------
     def _build_body(self):
@@ -264,55 +290,94 @@ class ConverterApp:
 
     # ----- data / actions --------------------------------------------------
     def _current_type(self) -> str:
-        label = self.type_var.get()
-        for t, lbl in TYPE_LABELS.items():
-            if lbl == label:
-                return t
-        return PROFILE_TYPES[0]
+        """Return the selected profile type ('all' or a specific type)."""
+        idx = self.type_menu.current()
+        if idx < 0 or idx >= len(self._type_keys):
+            return "all"
+        return self._type_keys[idx]
+
+    def _profile_label(self, entry, aggregate):
+        """Build the listbox row text for a profile entry."""
+        if entry.get("manual"):
+            tag = self._SLICER_DISPLAY.get(entry["src_key"], entry["src_key"])
+            return f"  [{tag} \u00b7 {TYPE_LABELS[entry['ptype']]}]  {entry['name']}  [manual]"
+        if aggregate:
+            tag = self._SLICER_DISPLAY.get(entry["src_key"], entry["src_key"])
+            return f"  [{tag} \u00b7 {TYPE_LABELS[entry['ptype']]}]  {entry['name']}"
+        return f"  {entry['name']}"
 
     def _refresh_profile_list(self):
         self.listbox.delete(0, "end")
-        self.profile_paths = []
-        src_key = self._selected_key(self.src_var, self._all_keys)
+        self.profile_entries = []
+        src_key = self._selected_src_key()
         ptype = self._current_type()
 
-        install = self.installs.get(src_key)
-        if install:
-            paths = list_profiles(install, ptype)
-            self.profile_paths = paths
-            for p in paths:
-                try:
-                    nm = profile_name(load_json(p), os.path.basename(p))
-                except ProfileError:
-                    nm = os.path.basename(p)
-                self.listbox.insert("end", f"  {nm}")
-            if paths:
+        src_keys = list(self.installs.keys()) if src_key == "all" else [src_key]
+        types = list(PROFILE_TYPES) if ptype == "all" else [ptype]
+        aggregate = (src_key == "all" or ptype == "all")
+
+        any_detected = False
+        for sk in src_keys:
+            install = self.installs.get(sk)
+            if not install:
+                continue
+            any_detected = True
+            for t in types:
+                for p in list_profiles(install, t):
+                    try:
+                        nm = profile_name(load_json(p), os.path.basename(p))
+                    except ProfileError:
+                        nm = os.path.basename(p)
+                    entry = {"path": p, "src_key": sk, "ptype": t,
+                             "name": nm, "manual": False}
+                    self.profile_entries.append(entry)
+                    self.listbox.insert("end",
+                                        self._profile_label(entry, aggregate))
+
+        if any_detected and self.profile_entries:
+            if src_key == "all":
+                names = ", ".join(self.installs[k].name
+                                  for k in self.installs)
                 self.hint_label.config(
-                    text=f"Reading from: {install.user_root}")
+                    text=f"Showing profiles from all detected slicers "
+                         f"({names}) \u2014 read straight from disk.")
             else:
                 self.hint_label.config(
-                    text=f"No {TYPE_LABELS[ptype].lower()} profiles found for "
-                         f"{install.name}. Use 'Add file' to pick one manually.")
+                    text=f"Reading from: {self.installs[src_key].user_root}")
+        elif any_detected:
+            self.hint_label.config(
+                text="No matching profiles found. Try a different type, or use "
+                     "'Add file\u2026' to pick one manually.")
         else:
             self.hint_label.config(
-                text="This slicer wasn't auto-detected on this computer. "
+                text="No supported slicer was auto-detected on this computer. "
                      "Use 'Add file\u2026' to select profile .json files "
                      "manually (e.g. from a backup or another PC).")
-        self._set_status(f"{len(self.profile_paths)} profile(s) listed.")
+        self._set_status(f"{len(self.profile_entries)} profile(s) listed.")
 
     def _add_file_manual(self):
         files = filedialog.askopenfilenames(
             title="Select profile .json file(s)",
             filetypes=[("Profile JSON", "*.json"), ("All files", "*.*")])
+        existing = {e["path"] for e in self.profile_entries}
+        # If a specific source slicer is chosen, prefer it; otherwise infer.
+        chosen_src = self._selected_src_key()
+        chosen_type = self._current_type()
         for f in files:
-            if f not in self.profile_paths:
-                self.profile_paths.append(f)
-                try:
-                    nm = profile_name(load_json(f), os.path.basename(f))
-                except ProfileError:
-                    nm = os.path.basename(f)
-                self.listbox.insert("end", f"  {nm}  [manual]")
-        self._set_status(f"{len(self.profile_paths)} profile(s) listed.")
+            if f in existing:
+                continue
+            try:
+                nm = profile_name(load_json(f), os.path.basename(f))
+            except ProfileError:
+                nm = os.path.basename(f)
+            inf_src, inf_type = self._infer_from_path(f)
+            src_key = chosen_src if chosen_src != "all" else (inf_src or "bambu")
+            ptype = chosen_type if chosen_type != "all" else inf_type
+            entry = {"path": f, "src_key": src_key, "ptype": ptype,
+                     "name": nm, "manual": True}
+            self.profile_entries.append(entry)
+            self.listbox.insert("end", self._profile_label(entry, True))
+        self._set_status(f"{len(self.profile_entries)} profile(s) listed.")
 
     def _select_all(self):
         self.listbox.select_set(0, "end")
@@ -332,38 +397,45 @@ class ConverterApp:
         if not out_dir:
             return
 
-        chosen = [self.profile_paths[i] for i in sel]
+        chosen = [self.profile_entries[i] for i in sel]
         self.convert_btn.config(state="disabled")
         self._set_status("Converting\u2026")
         threading.Thread(
             target=self._do_convert,
             args=(chosen, target_printer, out_dir), daemon=True).start()
 
-    def _do_convert(self, paths, target_printer, out_dir):
-        src_key = self._selected_key(self.src_var, self._all_keys)
-        dst_key = self._selected_key(self.dst_var, self._all_keys)
-        ptype = self._current_type()
-
-        # Inheritance search dirs: source user folders + system folders.
+    def _search_dirs_for(self, src_key, ptype):
+        """Inheritance search dirs: source user folders + system folders."""
         search_dirs = []
         install = self.installs.get(src_key)
         if install:
             for uid in (install.user_ids or []):
                 search_dirs.append(os.path.join(install.user_root, uid, ptype))
             search_dirs.extend(system_profile_dirs(install, ptype))
+        return search_dirs
+
+    def _do_convert(self, entries, target_printer, out_dir):
+        dst_key = self._selected_dst_key()
 
         reports = []
         errors = []
-        for path in paths:
+        for entry in entries:
+            path = entry["path"]
+            src_key = entry["src_key"]
+            ptype = entry["ptype"]
+            install = self.installs.get(src_key)
+            src_name = install.name if install else \
+                self._SLICER_DISPLAY.get(src_key, src_key)
             try:
                 data = load_json(path)
                 # include the profile's own folder for parent lookups
-                dirs = [os.path.dirname(path)] + search_dirs
+                dirs = [os.path.dirname(path)] + \
+                    self._search_dirs_for(src_key, ptype)
                 converted, report = convert_profile(
                     data=data, profile_type=ptype, src_slicer=src_key,
                     dst_slicer=dst_key, target_printer=target_printer,
                     search_dirs=dirs,
-                    name_suffix=f" (from {install.name if install else src_key})",
+                    name_suffix=f" (from {src_name})",
                 )
                 out_name = suggested_filename(converted, ptype)
                 save_json(converted, os.path.join(out_dir, out_name))

@@ -45,6 +45,10 @@ everything it changed.
 
 - 🔎 **Auto-detects** Bambu Studio, OrcaSlicer and Snapmaker Orca installs and
   finds their profile folders for you.
+- 🗂️ **One combined list** — by default it shows **every profile from every
+  slicer you have installed** (grouped and tagged by slicer + type), so you
+  don't have to know or pick the source first. Just pick a profile, choose a
+  destination slicer, and convert. Filter to a single slicer or type any time.
 - 💾 **Reads profiles straight from disk** — no need to get Bambu's export to work.
 - 🧬 **Flattens inheritance** so a converted profile is self-contained and won't
   disappear in the target slicer.
@@ -72,9 +76,14 @@ Grab a ready-to-run build from the [**Releases**](../../releases) page — no Py
 
 ## 🚀 Usage
 
-1. **From:** choose the slicer your profiles are currently in (e.g. Bambu Studio).
-2. **Profile type:** Filament, Printer, or Process.
-3. Pick one or more profiles from the list (they're read from disk automatically).
+1. **From:** leave it on **All detected slicers** to see every profile from all
+   your installed slicers at once (or pick a single slicer to narrow the list).
+2. **Profile type:** leave it on **All types**, or filter to Filament, Printer,
+   or Process.
+3. Pick one or more profiles from the list — they're read from disk
+   automatically and each row is tagged with its slicer and type. You can even
+   select profiles from **two different slicers** in one go; each is converted
+   from its own correct source.
 4. **To:** choose the destination slicer (e.g. Snapmaker Orca).
 5. **Target printer:** type the exact printer name as it appears in the
    destination slicer (e.g. `Snapmaker Artisan 0.4 nozzle`).
