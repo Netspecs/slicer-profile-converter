@@ -57,6 +57,9 @@ everything it changed.
 - 📦 **All three profile types** — filament, printer (machine) and process/print.
 - 📝 **Conversion report** — see exactly what changed and what (if anything)
   needs your review.
+- 🎨 **Filament color extraction** — for filament profiles, the report shows
+  the stored color (HEX + RGB), making it easy to re-assign the right color to
+  AMS slots or tool-changer positions in the destination slicer.
 - 🧰 **Manual mode** — point it at any `.json` (from a backup or another PC) even
   if that slicer isn't installed here.
 - 🪶 **Zero dependencies** — pure Python + Tkinter. No pip install headaches.
@@ -145,6 +148,11 @@ python3 test_converter.py
 - Bambu ↔ Orca ↔ Snapmaker conversions are high-fidelity (same schema family).
 - PrusaSlicer/SuperSlicer `.ini` support is **basic** (G-code + common keys);
   full `.ini` mapping is on the roadmap.
+- **Filament colors travel with the profile** — the stored color (HEX/RGB) is
+  preserved and shown in the report. However, **AMS slot assignments and
+  tool-changer mappings** are not stored in reusable profiles; those live in
+  project files (`.3mf`) and must be set up manually in the destination slicer
+  after importing the converted profile.
 - Always keep a backup of your original profiles. Converted profiles are written
   to a folder **you** choose — the app never overwrites your originals.
 
