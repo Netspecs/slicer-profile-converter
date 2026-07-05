@@ -1,0 +1,15 @@
+# Slicer Profile Converter has ZERO required third-party dependencies.
+# The conversion engine and GUI run entirely on the Python standard library
+# (tkinter ships with CPython on Windows/macOS).
+#
+# --- Linux Tkinter note ---
+# If you see "ModuleNotFoundError: No module named 'tkinter'":
+#   Debian/Ubuntu : sudo apt install python3-tk
+#   Fedora        : sudo dnf install python3-tkinter
+#   Arch          : sudo pacman -S tk
+#
+# --- Optional (nicer icons / building executables) ---
+# Pillow is only needed if you want to regenerate icons or build a frozen
+# executable with PyInstaller. It is NOT required to run the app.
+# Pillow>=9.0.0
+# pyinstaller>=6.0.0

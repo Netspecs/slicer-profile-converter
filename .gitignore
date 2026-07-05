@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+
+# PyInstaller build artifacts
+build/
+dist/
+*.manifest
+*.spec.bak
+
+# Windows installer output (Inno Setup)
+installer_output/
+
+# Converted output / user test files
+convout/
+*.converted.json
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.abacus.donotdelete

@@ -1,0 +1,13 @@
+{
+    "type": "filament",
+    "name": "My Silk Gold PLA",
+    "inherits": "Generic PLA @base",
+    "nozzle_temperature": ["215"],
+    "filament_flow_ratio": ["0.95"],
+    "compatible_printers": ["Bambu Lab P1S 0.4 nozzle"],
+    "compatible_printers_condition": "printer_model==\"Bambu Lab P1S\"",
+    "setting_id": "GFSA00_bambu_123",
+    "filament_id": "GFA99",
+    "machine_start_gcode": "M104 S{nozzle_temperature_initial_layer[0]}\nG28",
+    "from": "User"
+}
