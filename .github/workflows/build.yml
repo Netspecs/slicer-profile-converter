@@ -1,0 +1,96 @@
+name: Build executables
+
+# Builds standalone executables for Windows, macOS and Linux.
+# - On every push/PR: builds and uploads them as workflow artifacts.
+# - On a version tag (v*) or a published release: also attaches them to the Release.
+# On Windows it additionally builds a proper installer (Desktop icon + Start
+# Menu shortcut + Uninstaller in "Programs and Features").
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset_name: SlicerProfileConverter-windows.exe
+            bin_path: dist/SlicerProfileConverter.exe
+          - os: macos-latest
+            asset_name: SlicerProfileConverter-macos
+            bin_path: dist/SlicerProfileConverter
+          - os: ubuntu-latest
+            asset_name: SlicerProfileConverter-linux
+            bin_path: dist/SlicerProfileConverter
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pillow pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec --noconfirm
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "${{ matrix.bin_path }}" "out/${{ matrix.asset_name }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: out/${{ matrix.asset_name }}
+
+      # ----- Windows installer (Desktop icon + uninstaller) -------------
+      - name: Build Windows installer (Inno Setup)
+        if: matrix.os == 'windows-latest'
+        run: |
+          "%programfiles(x86)%\Inno Setup 6\ISCC.exe" installer\windows-installer.iss
+        shell: cmd
+
+      - name: Upload installer artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SlicerProfileConverter-Setup.exe
+          path: installer_output/SlicerProfileConverter-Setup.exe
+
+      - name: Attach installer to Release
+        if: matrix.os == 'windows-latest' && (github.event_name == 'release' || startsWith(github.ref, 'refs/tags/'))
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer_output/SlicerProfileConverter-Setup.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach to Release
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/${{ matrix.asset_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
