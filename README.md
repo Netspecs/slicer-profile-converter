@@ -6,7 +6,7 @@
 
 <p align="center">
   Move your <b>filament</b>, <b>printer</b> and <b>process</b> profiles between
-  <b>Bambu Studio</b>, <b>OrcaSlicer</b> and <b>Snapmaker Orca</b> —
+  <b>Bambu Studio</b>, <b>OrcaSlicer</b>, <b>Snapmaker Orca</b> and <b>Ultimaker Cura</b> —
   read straight from disk, <i>no fiddly export button required</i>.
 </p>
 
@@ -43,8 +43,8 @@ everything it changed.
 
 ## ✨ Features
 
-- 🔎 **Auto-detects** Bambu Studio, OrcaSlicer and Snapmaker Orca installs and
-  finds their profile folders for you.
+- 🔎 **Auto-detects** Bambu Studio, OrcaSlicer, Snapmaker Orca and Ultimaker Cura
+  installs and finds their profile folders for you.
 - 🗂️ **One combined list** — by default it shows **every profile from every
   slicer you have installed** (grouped and tagged by slicer + type), so you
   don't have to know or pick the source first. Just pick a profile, choose a
@@ -145,8 +145,11 @@ python3 test_converter.py
 
 ## ⚠️ Notes & limitations
 
-- Bambu ↔ Orca ↔ Snapmaker conversions are high-fidelity (same schema family).
-- PrusaSlicer/SuperSlicer `.ini` support is **basic** (G-code + common keys);
+- **Bambu ↔ Orca ↔ Snapmaker** conversions are high-fidelity (same schema family).
+- **Cura ↔ Bambu/Orca/Snapmaker** conversions map ~30 common settings (layer height,
+  temperatures, speeds, infill, support). Cura has 400+ settings; unmapped settings
+  are flagged in the conversion report. Works best for basic profiles.
+- **PrusaSlicer/SuperSlicer** `.ini` support is **basic** (G-code + common keys);
   full `.ini` mapping is on the roadmap.
 - **Filament colors travel with the profile** — the stored color (HEX/RGB) is
   preserved and shown in the report. However, **AMS slot assignments and

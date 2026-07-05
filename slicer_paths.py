@@ -76,6 +76,8 @@ _SLICER_DIRNAMES = {
     "orca": (["OrcaSlicer"], "OrcaSlicer"),
     "snapmaker": (["SnapmakerOrca", "Snapmaker Orca", "SnapmakerOrcaSlicer"],
                   "Snapmaker Orca"),
+    # Cura uses version-specific folders (e.g., cura/5.9)
+    "cura": (["cura"], "Ultimaker Cura"),
 }
 
 
@@ -101,10 +103,27 @@ def _list_user_ids(user_root: str) -> List[str]:
     return ids
 
 
+def _find_cura_version_dir(cura_root: str) -> Optional[str]:
+    """Find the latest Cura version folder (e.g., 5.9, 5.8)."""
+    if not os.path.isdir(cura_root):
+        return None
+    # List all numeric version folders
+    versions = []
+    for entry in os.listdir(cura_root):
+        full = os.path.join(cura_root, entry)
+        if os.path.isdir(full) and entry.replace(".", "").isdigit():
+            versions.append((entry, full))
+    if not versions:
+        return None
+    # Sort by version number (descending) and return the latest
+    versions.sort(key=lambda x: [int(p) for p in x[0].split(".")], reverse=True)
+    return versions[0][1]
+
+
 def detect_slicers() -> Dict[str, SlicerInstall]:
     """Detect all supported slicers installed for the current user.
 
-    Returns a dict keyed by slicer key (``bambu``, ``orca``, ``snapmaker``).
+    Returns a dict keyed by slicer key (``bambu``, ``orca``, ``snapmaker``, ``cura``).
     Only slicers whose config root exists on disk are included.
     """
     found: Dict[str, SlicerInstall] = {}
@@ -112,20 +131,36 @@ def detect_slicers() -> Dict[str, SlicerInstall]:
         root = _find_config_root(dirnames)
         if not root:
             continue
-        user_root = os.path.join(root, "user")
+        
+        # Cura has version-specific folders (e.g., cura/5.9)
+        if key == "cura":
+            version_dir = _find_cura_version_dir(root)
+            if not version_dir:
+                continue
+            root = version_dir
+            # Cura doesn't use a "user" subfolder - profiles are directly in version dir
+            user_root = root
+            user_ids = [""]  # Empty string = no user_id subfolder
+        else:
+            user_root = os.path.join(root, "user")
+            user_ids = _list_user_ids(user_root)
+        
         found[key] = SlicerInstall(
             key=key,
             name=name,
             config_root=root,
             user_root=user_root,
-            user_ids=_list_user_ids(user_root),
+            user_ids=user_ids,
         )
     return found
 
 
 def list_profiles(install: SlicerInstall, profile_type: str,
                   user_id: Optional[str] = None) -> List[str]:
-    """List absolute paths of ``.json`` profiles of ``profile_type``.
+    """List absolute paths of profiles of ``profile_type``.
+
+    For OrcaSlicer family: looks for .json files
+    For Cura: looks for .inst.cfg files in appropriate subdirectories
 
     If ``user_id`` is given, only that user folder is scanned; otherwise all
     user folders are scanned. Files whose names start with '.' are skipped.
@@ -135,13 +170,35 @@ def list_profiles(install: SlicerInstall, profile_type: str,
 
     user_ids = [user_id] if user_id else (install.user_ids or [])
     results: List[str] = []
-    for uid in user_ids:
-        folder = os.path.join(install.user_root, uid, profile_type)
-        if not os.path.isdir(folder):
-            continue
-        for fn in sorted(os.listdir(folder)):
-            if fn.lower().endswith(".json") and not fn.startswith("."):
-                results.append(os.path.join(folder, fn))
+    
+    # Cura has different folder structure and file extensions
+    if install.key == "cura":
+        # Map our generic types to Cura's folders
+        cura_folders = {
+            "filament": ["materials"],  # .inst.cfg.fdm_material
+            "process": ["quality_changes", "intent"],  # .inst.cfg
+            "machine": ["machine_instances"],  # .cfg
+        }
+        folders = cura_folders.get(profile_type, [])
+        extensions = [".inst.cfg", ".cfg", ".fdm_material"]
+        
+        for folder_name in folders:
+            folder = os.path.join(install.user_root, folder_name)
+            if not os.path.isdir(folder):
+                continue
+            for fn in sorted(os.listdir(folder)):
+                if not fn.startswith(".") and any(fn.endswith(ext) for ext in extensions):
+                    results.append(os.path.join(folder, fn))
+    else:
+        # OrcaSlicer family: user/<user_id>/<type>/*.json
+        for uid in user_ids:
+            folder = os.path.join(install.user_root, uid, profile_type)
+            if not os.path.isdir(folder):
+                continue
+            for fn in sorted(os.listdir(folder)):
+                if fn.lower().endswith(".json") and not fn.startswith("."):
+                    results.append(os.path.join(folder, fn))
+    
     return results
 
 
