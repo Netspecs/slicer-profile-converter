@@ -2,18 +2,17 @@
 profile_io.py
 =============
 
-Load, resolve and save OrcaSlicer-family profiles (Bambu Studio, OrcaSlicer,
-Snapmaker Orca). All three store profiles as JSON with an inheritance model:
-a child profile has an ``"inherits"`` key naming a parent profile, and only
-stores the keys that differ from the parent.
+Load, resolve and save slicer profiles in various formats:
+- JSON: OrcaSlicer-family (Bambu Studio, OrcaSlicer, Snapmaker Orca)
+- .inst.cfg: Cura (INI-like format with sections)
 
-To convert a profile reliably we usually want a **flattened** version -- the
-full set of effective settings with the inheritance chain merged in. This
-module handles that, searching user and system folders for parents.
+All slicers use an inheritance model where child profiles inherit from parents.
+To convert reliably, we flatten the inheritance chain.
 """
 
 from __future__ import annotations
 
+import configparser
 import json
 import os
 from typing import Dict, List, Optional, Tuple
@@ -40,9 +39,115 @@ def save_json(data: dict, path: str) -> None:
         fh.write("\n")
 
 
+def load_cura_cfg(path: str) -> dict:
+    """Load a Cura .inst.cfg file and convert to dict.
+    
+    Cura profiles are INI-like with sections like [general], [metadata], [values].
+    We convert them to a flat dict for easier processing.
+    """
+    try:
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(path, encoding="utf-8")
+        
+        result = {}
+        # Flatten all sections into one dict
+        for section in parser.sections():
+            for key, value in parser.items(section):
+                # Keep section prefix for metadata/general, values go without prefix
+                if section == "values":
+                    result[key] = value
+                else:
+                    result[f"{section}_{key}"] = value
+        
+        # Add file metadata
+        result["_cura_file"] = os.path.basename(path)
+        result["_cura_format"] = "inst.cfg"
+        
+        return result
+    except Exception as exc:
+        raise ProfileError(f"Could not read Cura profile {path!r}: {exc}") from exc
+
+
+def save_cura_cfg(data: dict, path: str) -> None:
+    """Write a dict to a Cura .inst.cfg file.
+    
+    Reconstructs the INI structure from a flat dict.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    
+    parser = configparser.ConfigParser(interpolation=None)
+    
+    # Separate keys into sections
+    general_keys = {}
+    metadata_keys = {}
+    value_keys = {}
+    
+    for key, value in data.items():
+        if key.startswith("_cura"):
+            continue  # Skip internal metadata
+        if key.startswith("general_"):
+            general_keys[key.replace("general_", "", 1)] = str(value)
+        elif key.startswith("metadata_"):
+            metadata_keys[key.replace("metadata_", "", 1)] = str(value)
+        else:
+            value_keys[key] = str(value)
+    
+    # Write sections
+    if general_keys:
+        parser.add_section("general")
+        for k, v in general_keys.items():
+            parser.set("general", k, v)
+    
+    if metadata_keys:
+        parser.add_section("metadata")
+        for k, v in metadata_keys.items():
+            parser.set("metadata", k, v)
+    
+    if value_keys:
+        parser.add_section("values")
+        for k, v in value_keys.items():
+            parser.set("values", k, v)
+    
+    with open(path, "w", encoding="utf-8") as fh:
+        parser.write(fh)
+
+
+def load_profile(path: str) -> dict:
+    """Load a profile file in any supported format (JSON or Cura .inst.cfg).
+    
+    Automatically detects the format based on file extension.
+    """
+    if path.endswith(".json"):
+        return load_json(path)
+    elif path.endswith(".inst.cfg") or path.endswith(".cfg") or path.endswith(".fdm_material"):
+        return load_cura_cfg(path)
+    else:
+        # Try JSON first, fallback to Cura
+        try:
+            return load_json(path)
+        except ProfileError:
+            return load_cura_cfg(path)
+
+
+def save_profile(data: dict, path: str) -> None:
+    """Save a profile file in the appropriate format based on extension."""
+    if path.endswith(".json"):
+        save_json(data, path)
+    elif path.endswith(".inst.cfg") or path.endswith(".cfg") or path.endswith(".fdm_material"):
+        save_cura_cfg(data, path)
+    else:
+        # Default to JSON
+        save_json(data, path)
+
+
 def profile_name(data: dict, fallback: str = "") -> str:
     """Best-effort human name for a profile."""
-    return data.get("name") or data.get("setting_id") or fallback
+    # Try different name keys: OrcaSlicer uses "name", Cura uses "general_name" or "metadata_name"
+    return (data.get("name") or 
+            data.get("general_name") or 
+            data.get("metadata_name") or 
+            data.get("setting_id") or 
+            fallback)
 
 
 def _index_profiles_by_name(search_dirs: List[str]) -> Dict[str, str]:
@@ -50,17 +155,20 @@ def _index_profiles_by_name(search_dirs: List[str]) -> Dict[str, str]:
 
     Later directories do NOT override earlier ones (first match wins), so pass
     user dirs before system dirs if you prefer user copies.
+    Handles both JSON and Cura .inst.cfg files.
     """
     index: Dict[str, str] = {}
+    valid_extensions = (".json", ".inst.cfg", ".cfg", ".fdm_material")
+    
     for d in search_dirs:
         if not d or not os.path.isdir(d):
             continue
         for fn in sorted(os.listdir(d)):
-            if not fn.lower().endswith(".json"):
+            if not any(fn.lower().endswith(ext) for ext in valid_extensions):
                 continue
             full = os.path.join(d, fn)
             try:
-                data = load_json(full)
+                data = load_profile(full)
             except ProfileError:
                 continue
             name = profile_name(data)
@@ -112,7 +220,7 @@ def resolve_inheritance(
         result.pop("inherits", None)
         return result, [f"{parent_name} (NOT FOUND)"]
 
-    parent_data = load_json(parent_path)
+    parent_data = load_profile(parent_path)  # Changed from load_json to support Cura
     parent_flat, parent_chain = resolve_inheritance(
         parent_data, search_dirs, _seen, _index)
 
