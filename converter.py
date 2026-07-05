@@ -64,6 +64,7 @@ class ConversionReport:
     profile_type: str = ""
     src_slicer: str = ""
     dst_slicer: str = ""
+    filament_color: Optional[str] = None  # HEX color for filament profiles
     inheritance_chain: List[str] = field(default_factory=list)
     changes: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
@@ -75,8 +76,10 @@ class ConversionReport:
             f"Profile type : {self.profile_type}",
             f"Source       : {self.source_name}  ({self.src_slicer})",
             f"Target       : {self.target_name}  ({self.dst_slicer})",
-            "",
         ]
+        if self.filament_color:
+            lines.append(f"Color        : {self.filament_color} {self._color_preview(self.filament_color)}")
+        lines.append("")
         if self.inheritance_chain:
             lines.append("Inheritance flattened (parent-first):")
             for p in self.inheritance_chain:
@@ -91,6 +94,21 @@ class ConversionReport:
         else:
             lines.append("  (none -- clean conversion)")
         return "\n".join(lines)
+
+    @staticmethod
+    def _color_preview(hex_color: str) -> str:
+        """Generate a simple ASCII color preview (RGB values)."""
+        # Strip # if present
+        hex_color = hex_color.lstrip("#")
+        if len(hex_color) == 6:
+            try:
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
+                return f"[RGB {r}, {g}, {b}]"
+            except ValueError:
+                return ""
+        return ""
 
 
 def convert_profile(
@@ -128,6 +146,21 @@ def convert_profile(
         profile_type=profile_type, src_slicer=src_slicer, dst_slicer=dst_slicer,
         source_name=profile_name(data, "(unnamed)"), target_name=target_printer,
     )
+
+    # Extract filament color if present (for filament profiles)
+    if profile_type == "filament":
+        color = data.get("filament_colour") or data.get("default_filament_colour")
+        if color and isinstance(color, str):
+            # Handle array format (some slicers store as ["#RRGGBB"])
+            if color.startswith("[") and color.endswith("]"):
+                try:
+                    import json as json_mod
+                    parsed = json_mod.loads(color)
+                    if isinstance(parsed, list) and parsed:
+                        color = parsed[0]
+                except Exception:
+                    pass
+            report.filament_color = color
 
     # 1) Flatten inheritance so nothing is lost when moved.
     flat, chain = resolve_inheritance(data, search_dirs or [])
