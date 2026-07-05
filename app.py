@@ -32,7 +32,7 @@ from slicer_paths import (
 )
 
 APP_TITLE = "Slicer Profile Converter"
-APP_VERSION = "1.0"
+APP_VERSION = "2.0.0"
 
 # --- dark theme palette (matches the Color Palette Matcher look) ------------
 BG = "#1e1e2e"

@@ -14,7 +14,7 @@
 ; =====================================================================
 
 #define MyAppName "Slicer Profile Converter"
-#define MyAppVersion "1.0"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "Netspecs"
 #define MyAppURL "https://github.com/Netspecs/slicer-profile-converter"
 #define MyAppExeName "SlicerProfileConverter.exe"
